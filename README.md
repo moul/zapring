@@ -20,16 +20,87 @@
 
 ## Usage
 
-[embedmd]:# (.tmp/usage.txt console)
-```console
-foo@bar:~$ zapring hello world
-            _                                                   _                      _        _
- __ _  ___ | | __ _  _ _   __ _  ___  _ _  ___  _ __  ___  ___ | |_  ___  _ __   _ __ | | __ _ | |_  ___
-/ _` |/ _ \| |/ _` || ' \ / _` ||___|| '_|/ -_)| '_ \/ _ \|___||  _|/ -_)| '  \ | '_ \| |/ _` ||  _|/ -_)
-\__, |\___/|_|\__,_||_||_|\__, |     |_|  \___|| .__/\___/      \__|\___||_|_|_|| .__/|_|\__,_| \__|\___|
-|___/                     |___/                |_|                              |_|
-12 CPUs, /home/moul/.gvm/pkgsets/go1.16/global/bin/zapring, fwrz, go1.16
-args ["zapring","hello","world"]
+[embedmd]:# (example_test.go /import\ / $)
+```go
+import (
+	"bufio"
+	"fmt"
+	"io"
+	"io/ioutil"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"moul.io/zapring"
+)
+
+func Example() {
+	encoderConfig := zap.NewDevelopmentEncoderConfig()
+	encoderConfig.TimeKey = "" // used to make this test consistent (not depending on current timestamp)
+	encoder := zapcore.NewJSONEncoder(encoderConfig)
+	level := zap.LevelEnablerFunc(func(_ zapcore.Level) bool { return true })
+	ring := zapring.New(uint(10 * 1024 * 1024)) // 10Mb ring
+	defer ring.Close()
+	core := ring.Wrap(
+		zapcore.NewCore(encoder, zapcore.AddSync(ioutil.Discard), level),
+		encoder,
+	)
+	logger := zap.New(
+		core,
+		zap.Development(),
+		zap.AddCaller(),
+	)
+	defer logger.Sync()
+	logger.Info("hello world!")
+	logger.Info("lorem ipsum")
+
+	r, w := io.Pipe()
+	go func() {
+		_, err := ring.WriteTo(w)
+		if err != nil && err != io.EOF {
+			panic(err)
+		}
+		w.Close()
+	}()
+	scanner := bufio.NewScanner(r)
+	lines := 0
+	for scanner.Scan() {
+		fmt.Println("--> ", scanner.Text())
+		lines++
+		if lines == 2 {
+			break
+		}
+	}
+
+	// Output:
+	// -->  {"L":"INFO","C":"zapring/example_test.go:31","M":"hello world!"}
+	// -->  {"L":"INFO","C":"zapring/example_test.go:32","M":"lorem ipsum"}
+}
+```
+
+[embedmd]:# (.tmp/usage.txt txt /TYPES/ $)
+```txt
+TYPES
+
+type Core struct {
+	zapcore.Core
+
+	// Has unexported fields.
+}
+    Core is an in-memory ring buffer log that implements zapcore.Core.
+
+func New(size uint) *Core
+
+func (c *Core) Check(entry zapcore.Entry, checked *zapcore.CheckedEntry) *zapcore.CheckedEntry
+
+func (c *Core) Close()
+
+func (c *Core) Wrap(core zapcore.Core, enc zapcore.Encoder) zapcore.Core
+
+func (c *Core) Write(entry zapcore.Entry, fields []zapcore.Field) error
+
+func (c *Core) WriteTo(w io.Writer) (n int64, err error)
+    WriteTo implements io.WriterTo.
+
 ```
 
 ## Install
