@@ -33,17 +33,16 @@ import (
 	"moul.io/zapring"
 )
 
-func Example() {
+func Example_custom() {
 	encoderConfig := zap.NewDevelopmentEncoderConfig()
 	encoderConfig.TimeKey = "" // used to make this test consistent (not depending on current timestamp)
 	encoder := zapcore.NewJSONEncoder(encoderConfig)
 	level := zap.LevelEnablerFunc(func(_ zapcore.Level) bool { return true })
 	ring := zapring.New(uint(10 * 1024 * 1024)) // 10Mb ring
 	defer ring.Close()
-	core := ring.Wrap(
-		zapcore.NewCore(encoder, zapcore.AddSync(ioutil.Discard), level),
-		encoder,
-	)
+	core := ring.
+		SetNextCore(zapcore.NewCore(encoder, zapcore.AddSync(ioutil.Discard), level)).
+		SetEncoder(encoder)
 	logger := zap.New(
 		core,
 		zap.Development(),
@@ -72,8 +71,58 @@ func Example() {
 	}
 
 	// Output:
-	// -->  {"L":"INFO","C":"zapring/example_test.go:31","M":"hello world!"}
-	// -->  {"L":"INFO","C":"zapring/example_test.go:32","M":"lorem ipsum"}
+	// -->  {"L":"INFO","C":"zapring/example_test.go:30","M":"hello world!"}
+	// -->  {"L":"INFO","C":"zapring/example_test.go:31","M":"lorem ipsum"}
+}
+
+func Example_composite() {
+	cli := zap.NewExample()
+	cli.Info("hello cli!")
+	ring := zapring.New(10 * 1024 * 1024) // 10MB ring-buffer
+	encoderConfig := zap.NewDevelopmentEncoderConfig()
+	encoderConfig.TimeKey = "" // used to make this test consistent (not depending on current timestamp)
+	ring.SetEncoder(zapcore.NewJSONEncoder(encoderConfig))
+	// FIXME: ring.Info("hello ring!")
+	composite := zap.New(
+		zapcore.NewTee(cli.Core(), ring),
+		zap.Development(),
+	)
+	composite.Info("hello composite!")
+
+	r, w := io.Pipe()
+	go func() {
+		_, err := ring.WriteTo(w)
+		if err != nil && err != io.EOF {
+			panic(err)
+		}
+		w.Close()
+	}()
+	composite.Info("hello composite 2!")
+	cli.Info("hello cli 2!")
+	scanner := bufio.NewScanner(r)
+	lines := 0
+	for scanner.Scan() {
+		fmt.Println("-> ", scanner.Text())
+		lines++
+		if lines == 2 {
+			break
+		}
+	}
+
+	// Output:
+	// {"level":"info","msg":"hello cli!"}
+	// {"level":"info","msg":"hello composite!"}
+	// {"level":"info","msg":"hello composite 2!"}
+	// {"level":"info","msg":"hello cli 2!"}
+	// ->  {"L":"INFO","M":"hello composite!"}
+	// ->  {"L":"INFO","M":"hello composite 2!"}
+}
+
+func Example_simple() {
+	ring := zapring.New(10 * 1024 * 1024) // 10MB ring-buffer
+	logger := zap.New(ring, zap.Development())
+	logger.Info("test")
+	// Output:
 }
 ```
 
@@ -89,14 +138,23 @@ type Core struct {
     Core is an in-memory ring buffer log that implements zapcore.Core.
 
 func New(size uint) *Core
+    New returns a ring-buffer with a capacity of 'size' bytes.
 
 func (c *Core) Check(entry zapcore.Entry, checked *zapcore.CheckedEntry) *zapcore.CheckedEntry
+    Check implements zapcore.Core.
 
 func (c *Core) Close()
+    Close implements zapcore.Core.
 
-func (c *Core) Wrap(core zapcore.Core, enc zapcore.Encoder) zapcore.Core
+func (c *Core) Enabled(level zapcore.Level) bool
+    Enabled implements zapcore.LevelEnabler.
+
+func (c *Core) SetEncoder(enc zapcore.Encoder) *Core
+
+func (c *Core) SetNextCore(core zapcore.Core) *Core
 
 func (c *Core) Write(entry zapcore.Entry, fields []zapcore.Field) error
+    Write implements zapcore.Core.
 
 func (c *Core) WriteTo(w io.Writer) (n int64, err error)
     WriteTo implements io.WriterTo.
