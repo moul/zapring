@@ -59,6 +59,23 @@ func (c *Core) Enabled(level zapcore.Level) bool {
 	return c.Core.Enabled(level)
 }
 
+func (c *Core) clone() *Core {
+	return &Core{
+		buffer: c.buffer,
+		enc:    c.enc.Clone(),
+		Core:   c.Core,
+	}
+}
+
+// With implements zapcore.Core.
+func (c *Core) With(fields []zapcore.Field) zapcore.Core {
+	clone := c.clone()
+	for _, field := range fields {
+		field.AddTo(clone.enc)
+	}
+	return clone
+}
+
 // Check implements zapcore.Core.
 func (c *Core) Check(entry zapcore.Entry, checked *zapcore.CheckedEntry) *zapcore.CheckedEntry {
 	c.setup()
