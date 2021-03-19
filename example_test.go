@@ -77,12 +77,13 @@ func Example_composite() {
 	}()
 	composite.Info("hello composite 2!")
 	cli.Info("hello cli 2!")
+	composite.With(zap.String("foo", "bar")).Warn("warn composite!")
 	scanner := bufio.NewScanner(r)
 	lines := 0
 	for scanner.Scan() {
 		fmt.Println("-> ", scanner.Text())
 		lines++
-		if lines == 2 {
+		if lines == 3 {
 			break
 		}
 	}
@@ -92,8 +93,10 @@ func Example_composite() {
 	// {"level":"info","msg":"hello composite!"}
 	// {"level":"info","msg":"hello composite 2!"}
 	// {"level":"info","msg":"hello cli 2!"}
+	// {"level":"warn","msg":"warn composite!","foo":"bar"}
 	// ->  {"L":"INFO","M":"hello composite!"}
 	// ->  {"L":"INFO","M":"hello composite 2!"}
+	// ->  {"L":"WARN","M":"warn composite!","foo":"bar"}
 }
 
 func Example_simple() {
