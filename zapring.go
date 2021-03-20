@@ -67,6 +67,14 @@ func (c *Core) clone() *Core {
 	}
 }
 
+// Sync implements zapcore.Core.
+func (c *Core) Sync() error {
+	if c.Core != nil {
+		return c.Core.Sync()
+	}
+	return nil
+}
+
 // With implements zapcore.Core.
 func (c *Core) With(fields []zapcore.Field) zapcore.Core {
 	clone := c.clone()
